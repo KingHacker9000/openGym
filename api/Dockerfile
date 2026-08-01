@@ -16,9 +16,19 @@ LABEL maintainer="Duarte Santos https://github.com/DuarteSantos8" \
     org.opencontainers.image.created=$BUILD_DATE
 
 WORKDIR /app
+
+# ── AI Coach runtimes ─────────────────────────────────────────────────────────
+# Pinned provider runtimes live in the API image; host Codex credentials are not mounted.
+RUN apk add --no-cache bubblewrap libgcc libstdc++
+RUN addgroup -S coach && adduser -S -G coach -H -s /sbin/nologin coach
+
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --include=optional \
+ && npm cache clean --force \
+ && node -e "import('@anthropic-ai/claude-agent-sdk').then(() => console.log('Claude Agent SDK ready'))" \
+ && ./node_modules/.bin/codex --version
 COPY server.js ./
+COPY coach/ ./coach/
 
 ENV NODE_ENV=production
 ENV PORT=3000

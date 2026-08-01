@@ -33,8 +33,12 @@ services:
       # cannot drift — change it in .env and both follow.
       - PORT=${PORT:-3000}
       - DATA_DIR=/data
+      - COACH_CODEX_HOME=/codex
     volumes:
       - ./data:/data         # users, passkeys, per-user state, session secret — BACK THIS UP
+      # ChatGPT/Codex refresh tokens are kept separate from app data and mounted only into the
+      # API container. This directory is owned by the unprivileged Coach runtime.
+      - ./data/codex:/codex
 
   # Builds the React frontend (multi-stage) and serves it, proxying /api → api
   # and the exercise media from the shared volume. Single origin for passkeys.
