@@ -1,10 +1,11 @@
 [Unit]
-Description=Check for tested openGym updates every two hours
+Description=Check for tested openGym updates once a month
 
 [Timer]
-OnBootSec=10min
-OnUnitActiveSec=2h
-RandomizedDelaySec=10min
+# Upstream sync runs on the first of each month. Give GitHub CI a full day to merge a
+# passing candidate before the Pi considers deploying it.
+OnCalendar=*-*-02 06:00:00
+RandomizedDelaySec=30min
 Persistent=true
 Unit=opengym-auto-update.service
 
