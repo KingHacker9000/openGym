@@ -1,10 +1,8 @@
 name: Port AI Coach (one shot)
 
 on:
-  push:
-    branches: [feature/ai-coach-codex]
-    paths:
-      - '.github/workflows/port-ai-coach.yml'
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -20,17 +18,30 @@ jobs:
           ref: feature/ai-coach-codex
           fetch-depth: 0
 
+      - name: Skip when already ported
+        id: check
+        run: |
+          if [ -f api/coach/config.js ]; then
+            echo 'ported=true' >> "$GITHUB_OUTPUT"
+            echo 'AI Coach is already present; nothing to cherry-pick.'
+          else
+            echo 'ported=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configure git
+        if: steps.check.outputs.ported != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Fetch Alex AI Coach fork
+        if: steps.check.outputs.ported != 'true'
         run: |
           git remote add alex https://github.com/alexpcosta/opengym.git
           git fetch alex main
 
       - name: Cherry-pick merged AI Coach feature
+        if: steps.check.outputs.ported != 'true'
         shell: bash
         run: |
           set +e
@@ -47,6 +58,7 @@ jobs:
           fi
 
       - name: Cherry-pick final Coach documentation cleanup
+        if: steps.check.outputs.ported != 'true'
         shell: bash
         run: |
           set +e
@@ -63,4 +75,5 @@ jobs:
           fi
 
       - name: Push ported feature
+        if: steps.check.outputs.ported != 'true'
         run: git push origin HEAD:feature/ai-coach-codex
