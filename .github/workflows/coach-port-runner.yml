@@ -1,0 +1,20 @@
+name: Coach Port Runner
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  port:
+    if: github.head_ref == 'feature/ai-coach-codex' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/ai-coach-codex
+          fetch-depth: 0
+      - name: Port and verify AI Coach
+        run: bash scripts/port-ai-coach-temp.sh
