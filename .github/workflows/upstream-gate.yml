@@ -1,0 +1,49 @@
+name: Upstream Gate
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    if: github.head_ref == 'automation/upstream-sync'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Frontend tests and production build
+        run: |
+          set -euo pipefail
+          npm ci --prefix frontend
+          npm test --prefix frontend
+          npm run build --prefix frontend
+          node frontend/scripts/check-locales.mjs
+          node frontend/scripts/check-source-strings.mjs
+          npm run test:fatigue-probe --prefix frontend
+
+      - name: API and Coach tests
+        run: |
+          set -euo pipefail
+          npm ci --prefix api
+          npm test --prefix api
+          node scripts/build-coach-library.mjs --check
+
+      - name: MCP tests
+        run: |
+          set -euo pipefail
+          npm ci --prefix mcp
+          npm test --prefix mcp
+          npm run check:node-loadable --prefix mcp
+
+      - name: Build Coach-enabled API image
+        run: docker build -t opengym-api-upstream-gate ./api
