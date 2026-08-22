@@ -40,31 +40,155 @@ jobs:
           git remote add alex https://github.com/alexpcosta/opengym.git
           git fetch alex main
 
-      - name: Cherry-pick merged AI Coach feature
+      - name: Cherry-pick Coach and resolve current-upstream conflicts
         if: steps.check.outputs.ported != 'true'
         shell: bash
         run: |
+          set -euo pipefail
           set +e
           git cherry-pick -m 1 9a539b94282c9272d1e493debd85c3730077e15d
           rc=$?
-          if [ $rc -ne 0 ]; then
-            echo '::group::AI Coach cherry-pick conflicts'
-            git status --short
-            echo
-            echo 'Conflicted files:'
-            git diff --name-only --diff-filter=U
-            echo '::endgroup::'
-            echo '::group::Functional conflict hunks'
-            git diff --cc -- api/Dockerfile api/server.js frontend/src/sheets.jsx frontend/src/store/useStore.js || true
-            echo '::endgroup::'
-            exit $rc
+          set -e
+          if [ $rc -eq 0 ]; then
+            exit 0
           fi
 
-      - name: Cherry-pick final Coach documentation cleanup
+          echo 'Resolving the known compatibility conflicts against current upstream.'
+
+          # Keep current upstream narrative/docs and CI skeleton. Coach-specific docs/modules
+          # added by the cherry-pick remain staged; we add an API CI job separately later.
+          git checkout --ours CHANGELOG.md README.md .github/workflows/test.yml
+
+          # .env is comments/config only. Union preserves newer upstream knobs plus Coach's kill-switch docs.
+          merge_union() {
+            local f="$1" d
+            d="$(mktemp -d)"
+            git show ":2:$f" > "$d/ours"
+            git show ":1:$f" > "$d/base"
+            git show ":3:$f" > "$d/theirs"
+            git merge-file --union "$d/ours" "$d/base" "$d/theirs" || true
+            cp "$d/ours" "$f"
+            rm -rf "$d"
+          }
+          merge_union .env.example
+
+          # Locale conflicts are independent additions at the same tail of each translation object.
+          # A three-way union keeps upstream's newer strings and Alex's Coach keys; frontend CI checks syntax/key parity.
+          for f in frontend/src/locales/{de,es,fr,hi,it,ko,pl,pt,ru,tr,zh}.js; do
+            merge_union "$f"
+          done
+
+          # Dockerfile: start from the newer upstream image metadata/healthcheck and add only the Coach runtime.
+          git show :2:api/Dockerfile > /tmp/api.Dockerfile.ours
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/api.Dockerfile.ours')
+          s = p.read_text()
+          marker = 'WORKDIR /app\nCOPY package.json package-lock.json* ./\n'
+          coach = '''WORKDIR /app
+
+# ── AI Coach runtimes ─────────────────────────────────────────────────────────
+# The API image owns a pinned Codex CLI/Claude runtime; host credentials are never mounted.
+RUN apk add --no-cache bubblewrap libgcc libstdc++
+RUN addgroup -S coach && adduser -S -G coach -H -s /sbin/nologin coach
+
+COPY package.json package-lock.json* ./
+'''
+          if marker not in s:
+              raise SystemExit('Dockerfile WORKDIR/package marker moved')
+          s = s.replace(marker, coach, 1)
+          old = 'RUN npm install --omit=dev && npm cache clean --force\n'
+          new = '''RUN npm ci --omit=dev --include=optional \\
+ && npm cache clean --force \\
+ && node -e "import('@anthropic-ai/claude-agent-sdk').then(() => console.log('Claude Agent SDK ready'))" \\
+ && ./node_modules/.bin/codex --version
+'''
+          if old not in s:
+              raise SystemExit('Dockerfile npm install marker moved')
+          s = s.replace(old, new, 1)
+          old = 'COPY server.js ./\n\nENV NODE_ENV=production\n'
+          new = 'COPY server.js ./\nCOPY coach/ ./coach/\n\nENV NODE_ENV=production\n'
+          if old not in s:
+              raise SystemExit('Dockerfile server copy marker moved')
+          s = s.replace(old, new, 1)
+          Path('api/Dockerfile').write_text(s)
+          PY
+
+          # server.js already auto-merged every other Coach hunk; combine the one config-route conflict
+          # so current allow_guest and Coach capability discovery coexist.
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('api/server.js')
+          s = p.read_text()
+          pat = re.compile(r'''<<<<<<< HEAD\n\s*// Public config.*?\n\s*'GET /api/config':.*?\n=======\n.*?>>>>>>> 9a539b9 \(Merge pull request #1 from alexpcosta/ai-enablement\)\n''', re.S)
+          repl = '''  // Public config needed before sign-in. Preserve upstream guest-mode capability and expose
+  // Coach only when the instance has enabled it and connected a provider.
+  'GET /api/config': async (req, res) => {
+    const coach = coachConfig.publicConfig();
+    json(res, 200, { invite_only: INVITE_ONLY, allow_guest: ALLOW_GUEST, ...(coach ? { coach } : {}) });
+  },
+'''
+          s2, n = pat.subn(repl, s, count=1)
+          if n != 1:
+              raise SystemExit(f'expected one server config conflict, found {n}')
+          p.write_text(s2)
+          PY
+
+          # sheets.jsx conflict is only Row (new upstream) vs TextArea (Coach): keep both.
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('frontend/src/sheets.jsx')
+          s = p.read_text()
+          pat = re.compile(r'''<<<<<<< HEAD\nimport \{ Button, Slider, Switch, Segmented, SelectRow, Row \} from './components/ui\.jsx'\n=======\n\s*import \{ Button, Slider, Switch, Segmented, SelectRow, TextArea \} from './components/ui\.jsx'\n>>>>>>> 9a539b9 \(Merge pull request #1 from alexpcosta/ai-enablement\)\n''')
+          repl = "import { Button, Slider, Switch, Segmented, SelectRow, Row, TextArea } from './components/ui.jsx'\n"
+          s2, n = pat.subn(repl, s, count=1)
+          if n != 1:
+              raise SystemExit(f'expected one sheets import conflict, found {n}')
+          p.write_text(s2)
+          PY
+
+          # Upstream's loadConfig() now caches /api/config already, so retain its guest handling;
+          # Coach sees the same cached config and does not need Alex's older duplicate fetch.
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('frontend/src/store/useStore.js')
+          s = p.read_text()
+          pat = re.compile(r'''<<<<<<< HEAD\n(\s*// Guests never authenticate,.*?if \(!guestAllowed\(cfg\)\) get\(\)\.setGuest\(false\)\n)=======\n.*?>>>>>>> 9a539b9 \(Merge pull request #1 from alexpcosta/ai-enablement\)\n''', re.S)
+          m = pat.search(s)
+          if not m:
+              raise SystemExit('expected one store boot conflict')
+          s = s[:m.start()] + m.group(1) + s[m.end():]
+          p.write_text(s)
+          PY
+
+          git add .env.example .github/workflows/test.yml CHANGELOG.md README.md api/Dockerfile api/server.js \
+            frontend/src/locales/*.js frontend/src/sheets.jsx frontend/src/store/useStore.js
+
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo 'Unresolved conflicts remain:'
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+
+          GIT_EDITOR=true git cherry-pick --continue
+
+      - name: Verify port before pushing
         if: steps.check.outputs.ported != 'true'
         shell: bash
         run: |
-          git cherry-pick -m 1 678bf5bf10446e8997a77d43e89c9b2721d8d0fc
+          set -euo pipefail
+          npm ci --prefix api
+          npm test --prefix api
+          npm ci --prefix frontend
+          npm test --prefix frontend
+          npm run build --prefix frontend
+          node frontend/scripts/check-locales.mjs
+          npm ci --prefix mcp
+          npm test --prefix mcp
+          docker build -t opengym-api-coach-test ./api
 
       - name: Push ported feature
         if: steps.check.outputs.ported != 'true'
