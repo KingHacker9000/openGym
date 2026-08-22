@@ -54,6 +54,9 @@ jobs:
             echo 'Conflicted files:'
             git diff --name-only --diff-filter=U
             echo '::endgroup::'
+            echo '::group::Functional conflict hunks'
+            git diff --cc -- api/Dockerfile api/server.js frontend/src/sheets.jsx frontend/src/store/useStore.js || true
+            echo '::endgroup::'
             exit $rc
           fi
 
@@ -61,18 +64,7 @@ jobs:
         if: steps.check.outputs.ported != 'true'
         shell: bash
         run: |
-          set +e
           git cherry-pick -m 1 678bf5bf10446e8997a77d43e89c9b2721d8d0fc
-          rc=$?
-          if [ $rc -ne 0 ]; then
-            echo '::group::Coach docs cherry-pick conflicts'
-            git status --short
-            echo
-            echo 'Conflicted files:'
-            git diff --name-only --diff-filter=U
-            echo '::endgroup::'
-            exit $rc
-          fi
 
       - name: Push ported feature
         if: steps.check.outputs.ported != 'true'
