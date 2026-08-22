@@ -1,4 +1,4 @@
-# Runs on pull requests too — the other workflows only fire on push to main, so
+# Runs on pull requests too — the other two workflows only fire on push to main, so
 # contributed changes used to reach main without anything ever having been run.
 name: Tests
 
@@ -8,16 +8,24 @@ on:
       - 'frontend/**'
       - 'api/**'
       - 'mcp/**'
+      - 'deploy/**'
       - 'scripts/build-coach-library.mjs'
       - '.github/workflows/test.yml'
+      - '.github/workflows/sync-upstream.yml'
+      - '.github/workflows/upstream-gate.yml'
+      - '.github/workflows/merge-upstream-after-gate.yml'
   push:
     branches: [main]
     paths:
       - 'frontend/**'
       - 'api/**'
       - 'mcp/**'
+      - 'deploy/**'
       - 'scripts/build-coach-library.mjs'
       - '.github/workflows/test.yml'
+      - '.github/workflows/sync-upstream.yml'
+      - '.github/workflows/upstream-gate.yml'
+      - '.github/workflows/merge-upstream-after-gate.yml'
   workflow_dispatch:
 
 permissions:
