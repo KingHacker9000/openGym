@@ -1,4 +1,4 @@
-# Runs on pull requests too — the other two workflows only fire on push to main, so
+# Runs on pull requests too — the other workflows only fire on push to main, so
 # contributed changes used to reach main without anything ever having been run.
 name: Tests
 
@@ -6,13 +6,17 @@ on:
   pull_request:
     paths:
       - 'frontend/**'
+      - 'api/**'
       - 'mcp/**'
+      - 'scripts/build-coach-library.mjs'
       - '.github/workflows/test.yml'
   push:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'api/**'
       - 'mcp/**'
+      - 'scripts/build-coach-library.mjs'
       - '.github/workflows/test.yml'
   workflow_dispatch:
 
@@ -52,6 +56,25 @@ jobs:
       # Property probe over ~108k comparisons; too slow for the unit suite, cheap here.
       - run: npm run test:fatigue-probe
         working-directory: frontend
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: npm ci
+        working-directory: api
+      - run: npm test
+        working-directory: api
+      # The Coach uses a generated, committed exercise catalogue. Keep it in lockstep with
+      # current upstream exercise data so a future sync cannot silently stale the AI validator.
+      - run: node scripts/build-coach-library.mjs --check
+      # Proves the pinned Claude/Codex runtimes install on Alpine and the final API image builds.
+      - run: docker build -t opengym-api-ci ./api
 
   mcp:
     runs-on: ubuntu-latest
