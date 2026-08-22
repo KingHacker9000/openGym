@@ -1,0 +1,66 @@
+name: Port AI Coach (one shot)
+
+on:
+  push:
+    branches: [feature/ai-coach-codex]
+    paths:
+      - '.github/workflows/port-ai-coach.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  port:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/ai-coach-codex
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch Alex AI Coach fork
+        run: |
+          git remote add alex https://github.com/alexpcosta/opengym.git
+          git fetch alex main
+
+      - name: Cherry-pick merged AI Coach feature
+        shell: bash
+        run: |
+          set +e
+          git cherry-pick -m 1 9a539b94282c9272d1e493debd85c3730077e15d
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo '::group::AI Coach cherry-pick conflicts'
+            git status --short
+            echo
+            echo 'Conflicted files:'
+            git diff --name-only --diff-filter=U
+            echo '::endgroup::'
+            exit $rc
+          fi
+
+      - name: Cherry-pick final Coach documentation cleanup
+        shell: bash
+        run: |
+          set +e
+          git cherry-pick -m 1 678bf5bf10446e8997a77d43e89c9b2721d8d0fc
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo '::group::Coach docs cherry-pick conflicts'
+            git status --short
+            echo
+            echo 'Conflicted files:'
+            git diff --name-only --diff-filter=U
+            echo '::endgroup::'
+            exit $rc
+          fi
+
+      - name: Push ported feature
+        run: git push origin HEAD:feature/ai-coach-codex
