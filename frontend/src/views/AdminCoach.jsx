@@ -120,6 +120,13 @@ export default function AdminCoach() {
         </>}
       </>}
 
+      {/* Providers such as a local OpenAI-compatible endpoint need no credential, but they still
+          need an operator-visible round-trip test. Keep the same test endpoint available here
+          rather than hiding it with the credential controls. */}
+      {d.auth?.state === 'not-required' && <div className="row" style={{ gap: 8, marginBottom: 10 }}>
+        <Button size="sm" icon="check" disabled={busy} onClick={test}>Test the Coach</Button>
+      </div>}
+
       {/* limits */}
       <h4 className="sec">Limits</h4>
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
