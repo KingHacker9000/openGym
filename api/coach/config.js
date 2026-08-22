@@ -30,6 +30,10 @@ export const COACH_DISABLED = /^(1|true|yes|on)$/i.test(process.env.COACH_DISABL
 export const PROVIDERS = {
   claude: { label: 'Claude Code', runtime: 'Claude Agent SDK', setupToken: true, apiKeyEnv: 'ANTHROPIC_API_KEY', oauthEnv: 'CLAUDE_CODE_OAUTH_TOKEN' },
   codex: { label: 'OpenAI Codex CLI', runtime: 'OpenAI Codex CLI', deviceLogin: true, apiKeyEnv: null, oauthEnv: null },
+  'openai-compatible': {
+    label: 'Local / OpenAI-compatible', runtime: 'OpenAI-compatible HTTP',
+    noAuth: true, endpointEnv: 'COACH_OPENAI_BASE_URL', apiKeyEnv: null, oauthEnv: null
+  },
   // Test-only: drives the in-repo fixture CLI. Selectable so an instance can be exercised
   // end-to-end (and demoed) without any AI account at all.
   fixture: { label: 'Fixture (testing)', runtime: 'Fixture', apiKeyEnv: null, oauthEnv: null }
@@ -146,11 +150,15 @@ export function isEnabled() {
   const cfg = load();
   return !!cfg.enabled && !!PROVIDERS[cfg.provider];
 }
-/** Credentials present? The fixture carries its own auth (or needs none). */
+/** Credentials or operator configuration present? */
 export function isConnected() {
   const cfg = load();
   if (!isEnabled()) return false;
+  const meta = providerMeta(cfg);
   if (cfg.provider === 'fixture') return true;
+  // A local HTTP provider has no credential, but it is not considered connected until the
+  // operator has explicitly supplied its endpoint in the server environment.
+  if (meta.noAuth) return meta.endpointEnv ? !!String(process.env[meta.endpointEnv] || '').trim() : true;
   // Codex's ChatGPT credential remains in Codex's own auth.json cache, not coach.json.
   if (cfg.provider === 'codex') return hasCodexAuth();
   // Claude is intentionally setup-token only. Do not silently retain the old browser OAuth or
