@@ -6,14 +6,26 @@ on:
   pull_request:
     paths:
       - 'frontend/**'
+      - 'api/**'
       - 'mcp/**'
+      - 'deploy/**'
+      - 'scripts/build-coach-library.mjs'
       - '.github/workflows/test.yml'
+      - '.github/workflows/sync-upstream.yml'
+      - '.github/workflows/upstream-gate.yml'
+      - '.github/workflows/merge-upstream-after-gate.yml'
   push:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'api/**'
       - 'mcp/**'
+      - 'deploy/**'
+      - 'scripts/build-coach-library.mjs'
       - '.github/workflows/test.yml'
+      - '.github/workflows/sync-upstream.yml'
+      - '.github/workflows/upstream-gate.yml'
+      - '.github/workflows/merge-upstream-after-gate.yml'
   workflow_dispatch:
 
 permissions:
@@ -36,6 +48,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
         working-directory: frontend
+      # coach.test.js intentionally imports the server's real fingerprint implementation to
+      # prevent client/server drift, so this isolated frontend job also needs API runtime deps.
+      - run: npm ci
+        working-directory: api
       - run: npm test
         working-directory: frontend
       # A broken import or bad JSX fails the build long before any test covers it.
@@ -52,6 +68,25 @@ jobs:
       # Property probe over ~108k comparisons; too slow for the unit suite, cheap here.
       - run: npm run test:fatigue-probe
         working-directory: frontend
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: npm ci
+        working-directory: api
+      - run: npm test
+        working-directory: api
+      # The Coach uses a generated, committed exercise catalogue. Keep it in lockstep with
+      # current upstream exercise data so a future sync cannot silently stale the AI validator.
+      - run: node scripts/build-coach-library.mjs --check
+      # Proves the pinned Claude/Codex runtimes install on Alpine and the final API image builds.
+      - run: docker build -t opengym-api-ci ./api
 
   mcp:
     runs-on: ubuntu-latest

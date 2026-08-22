@@ -1,0 +1,15 @@
+[Unit]
+Description=openGym safe source updater
+Wants=network-online.target docker.service
+After=network-online.target docker.service tailscaled.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/stacks/opengym
+Environment=OPENGYM_OWNER=ashish
+ExecStart=/bin/bash /opt/stacks/opengym/deploy/pi-auto-update.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
