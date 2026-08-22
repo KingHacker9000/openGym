@@ -21,6 +21,15 @@ jobs:
         with:
           node-version: 22
 
+      # Install/test API first because frontend/src/lib/coach.test.js deliberately imports the
+      # server's real Coach fingerprint implementation to detect client/server drift.
+      - name: API and Coach tests
+        run: |
+          set -euo pipefail
+          npm ci --prefix api
+          npm test --prefix api
+          node scripts/build-coach-library.mjs --check
+
       - name: Frontend tests and production build
         run: |
           set -euo pipefail
@@ -30,13 +39,6 @@ jobs:
           node frontend/scripts/check-locales.mjs
           node frontend/scripts/check-source-strings.mjs
           npm run test:fatigue-probe --prefix frontend
-
-      - name: API and Coach tests
-        run: |
-          set -euo pipefail
-          npm ci --prefix api
-          npm test --prefix api
-          node scripts/build-coach-library.mjs --check
 
       - name: MCP tests
         run: |
