@@ -1,9 +1,8 @@
-# Keeps this mirror current with the original project on Gitea.
-# Daily cron plus a manual button (Actions -> Sync from upstream -> Run workflow).
-# Every branch on upstream is merged into its counterpart here; branches that
-# only exist upstream are created. Never force-pushes: a conflict fails the run
-# loudly instead of silently diverging - resolve it locally and push, then re-run.
-name: Sync from upstream
+# Safely tracks the GitHub mirror of the canonical openGym project.
+# Upstream is NEVER merged directly into main. A conflict-free merge is pushed to an
+# automation-owned branch and proposed as a PR; Upstream Gate tests it before a separate
+# workflow is allowed to merge it.
+name: Sync upstream safely
 
 on:
   schedule:
@@ -12,36 +11,58 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
 
-      - name: Fetch upstream and sync all branches + tags
+      - name: Fetch mirror and prepare merge PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SYNC_BRANCH: automation/upstream-sync
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git remote add upstream https://gitea.com/DuarteSantos/openGym.git
-          git fetch upstream "+refs/heads/*:refs/remotes/upstream/*" --prune --tags
-          git fetch origin "+refs/heads/*:refs/remotes/origin/*"
+          # This mirror itself syncs from https://gitea.com/DuarteSantos/openGym.git daily.
+          git remote add upstream https://github.com/ramananbuilds/openGym.git
+          git fetch upstream main --tags
 
-          for b in $(git for-each-ref --format="%(refname:short)" refs/remotes/upstream/); do
-            name="${b#upstream/}"
-            echo "::group::Branch $name"
-            if git show-ref --verify --quiet "refs/remotes/origin/$name"; then
-              git checkout -B "$name" "origin/$name"
-              git merge "upstream/$name" --no-edit
-            else
-              git branch "$name" "upstream/$name"
-            fi
-            git push origin "$name"
-            echo "::endgroup::"
-          done
+          # If the newest mirror commit is already in our history, there is nothing to do.
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Already contains the latest mirror commit."
+            exit 0
+          fi
 
-          git push origin --tags
+          git checkout -B "$SYNC_BRANCH" main
+          if ! git merge --no-ff --no-edit upstream/main; then
+            echo "::error::Upstream no longer merges cleanly with our Coach fork. main was not changed."
+            echo "Conflicted files:"
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+
+          # This branch is owned only by this workflow, so replacing an older candidate is safe.
+          git push --force origin "$SYNC_BRANCH"
+
+          existing="$(gh pr list --head "$SYNC_BRANCH" --base main --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "Updated existing upstream PR #$existing"
+          else
+            gh pr create \
+              --base main \
+              --head "$SYNC_BRANCH" \
+              --title "chore: sync latest openGym upstream" \
+              --body "Automated merge candidate from **ramananbuilds/openGym** (the GitHub mirror of the canonical Gitea upstream). This PR is merged automatically only after the read-only **Upstream Gate** passes. Merge conflicts or test/build failures leave `main` and the live server untouched."
+          fi
