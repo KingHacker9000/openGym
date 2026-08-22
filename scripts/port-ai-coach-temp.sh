@@ -22,20 +22,41 @@ if [[ $rc -ne 0 ]]; then
   # Preserve current upstream narrative and test skeleton.
   git checkout --ours CHANGELOG.md README.md .github/workflows/test.yml
 
-  merge_union() {
-    local f="$1" d
-    d="$(mktemp -d)"
-    git show ":2:$f" > "$d/ours"
-    git show ":1:$f" > "$d/base"
-    git show ":3:$f" > "$d/theirs"
-    git merge-file --union "$d/ours" "$d/base" "$d/theirs" || true
-    cp "$d/ours" "$f"
-    rm -rf "$d"
-  }
+  # .env is comments/config only, so union is safe and keeps both newer upstream knobs and
+  # Coach's optional kill-switch documentation.
+  d="$(mktemp -d)"
+  git show :2:.env.example > "$d/ours"
+  git show :1:.env.example > "$d/base"
+  git show :3:.env.example > "$d/theirs"
+  git merge-file --union "$d/ours" "$d/base" "$d/theirs" || true
+  cp "$d/ours" .env.example
+  rm -rf "$d"
 
-  merge_union .env.example
+  # Locale packs are JavaScript objects. Merge them semantically instead of line-unioning the
+  # closing brace: keep today's upstream pack verbatim and append only keys that the Coach PR
+  # introduced relative to its base. This preserves all newer translations and valid syntax.
   for f in frontend/src/locales/{de,es,fr,hi,it,ko,pl,pt,ru,tr,zh}.js; do
-    merge_union "$f"
+    d="$(mktemp -d)"
+    git show ":2:$f" > "$d/ours.mjs"
+    git show ":1:$f" > "$d/base.mjs"
+    git show ":3:$f" > "$d/theirs.mjs"
+    node --input-type=module - "$f" "$d/ours.mjs" "$d/base.mjs" "$d/theirs.mjs" <<'NODE'
+import fs from 'node:fs'
+import { pathToFileURL } from 'node:url'
+const [target, oursPath, basePath, theirsPath] = process.argv.slice(2)
+const load = async p => (await import(pathToFileURL(p).href + `?v=${Date.now()}-${Math.random()}`)).default
+const [ours, base, theirs] = await Promise.all([load(oursPath), load(basePath), load(theirsPath)])
+const added = Object.keys(theirs).filter(k => !(k in base) && !(k in ours))
+let src = fs.readFileSync(oursPath, 'utf8')
+const close = src.lastIndexOf('}')
+if (close < 0) throw new Error(`no locale object close in ${target}`)
+let head = src.slice(0, close).trimEnd()
+if (!head.endsWith('{') && !head.endsWith(',')) head += ','
+for (const key of added) head += `\n  ${JSON.stringify(key)}: ${JSON.stringify(theirs[key])},`
+fs.writeFileSync(target, `${head}\n}\n`)
+console.log(`${target}: added ${added.length} Coach translation keys`)
+NODE
+    rm -rf "$d"
   done
 
   # Keep upstream's newer OCI metadata and healthcheck, add the Coach runtime only.
