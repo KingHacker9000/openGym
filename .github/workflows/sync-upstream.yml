@@ -6,7 +6,9 @@ name: Sync upstream safely
 
 on:
   schedule:
-    - cron: "23 4 * * *"
+    # Once a month is enough for this personal deployment; avoids chasing every minor upstream
+    # change. The Pi deployment timer runs the following day after CI has had time to gate it.
+    - cron: "23 4 1 * *"
   workflow_dispatch:
 
 permissions:
@@ -35,7 +37,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # This mirror itself syncs from https://gitea.com/DuarteSantos/openGym.git daily.
+          # GitHub mirror of the canonical Gitea project.
           git remote add upstream https://github.com/ramananbuilds/openGym.git
           git fetch upstream main --tags
 
@@ -64,5 +66,5 @@ jobs:
               --base main \
               --head "$SYNC_BRANCH" \
               --title "chore: sync latest openGym upstream" \
-              --body "Automated merge candidate from **ramananbuilds/openGym** (the GitHub mirror of the canonical Gitea upstream). This PR is merged automatically only after the read-only **Upstream Gate** passes. Merge conflicts or test/build failures leave `main` and the live server untouched."
+              --body "Automated monthly merge candidate from **ramananbuilds/openGym** (the GitHub mirror of the canonical Gitea upstream). This PR is merged automatically only after the read-only **Upstream Gate** passes. Merge conflicts or test/build failures leave `main` and the live server untouched."
           fi

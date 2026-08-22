@@ -23,6 +23,19 @@ test('a provider that is enabled but not signed in is still not offered', () => 
   assert.equal(cfg.publicConfig(), null, 'half-configured is off, not broken');
 });
 
+test('the local OpenAI-compatible provider needs only an operator-configured endpoint', () => {
+  cfg.save({ enabled: true, provider: 'openai-compatible', auth: null });
+  const before = process.env.COACH_OPENAI_BASE_URL;
+  delete process.env.COACH_OPENAI_BASE_URL;
+  assert.equal(cfg.isConnected(), false, 'missing endpoint fails closed');
+  process.env.COACH_OPENAI_BASE_URL = 'http://pi-model.test/v1';
+  assert.equal(cfg.isConnected(), true);
+  assert.equal(auth.authStatus().state, 'not-required');
+  assert.equal(cfg.publicConfig()?.provider, 'openai-compatible');
+  if (before === undefined) delete process.env.COACH_OPENAI_BASE_URL;
+  else process.env.COACH_OPENAI_BASE_URL = before;
+});
+
 test('credentials survive a round-trip and are unreadable in the file', () => {
   cfg.save({ enabled: true, provider: 'claude', auth: { type: 'cli-token', data: cfg.encrypt({ token: 'cli-setup-secret' }) } });
   assert.equal(cfg.isConnected(), true);
@@ -66,7 +79,7 @@ test('retired Gemini and Custom command configurations reset to unconfigured Cla
   });
   cfg.reset();
   const current = cfg.load();
-  assert.deepEqual(Object.keys(cfg.PROVIDERS).sort(), ['claude', 'codex', 'fixture']);
+  assert.deepEqual(Object.keys(cfg.PROVIDERS).sort(), ['claude', 'codex', 'fixture', 'openai-compatible']);
   assert.equal(current.provider, 'claude');
   assert.equal(current.auth, null);
   assert.equal(Object.hasOwn(current, 'customCommand'), false);
